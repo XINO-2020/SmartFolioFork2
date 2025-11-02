@@ -186,21 +186,22 @@ def compute_monthly_corrs(df: pd.DataFrame, market: str, lookback_days: int = 20
 
     for end_date in tqdm(last_days, desc="Monthly corrs"):
         end_idx = date_unique.index(end_date)
-        if end_idx < (lookback_days - 1):
-            continue
-        start_date = date_unique[end_idx - (lookback_days - 1)]
+        # For early months with insufficient lookback, use all available data
+        start_idx = max(0, end_idx - (lookback_days - 1))
+        start_date = date_unique[start_idx]
         window = df_local[(df_local["dt"] >= start_date) & (df_local["dt"] <= end_date)]
         # Build feature tensor: per code, stack features over time
         feat_dict = {}
+        actual_lookback = end_idx - start_idx + 1
         for code in codes:
             sub = window[window["kdcode"] == code]
             y = sub[["close", "open", "high", "low", "prev_close", "volume"]].values
-            # ensure complete window
-            if y.shape[0] == lookback_days:
+            # ensure complete window (or at least 2 days for correlation)
+            if y.shape[0] == actual_lookback and y.shape[0] >= 2:
                 feat_dict[code] = y.T  # shape [F, T]
         # Align codes for this window
         valid_codes = list(feat_dict.keys())
-        if not valid_codes:
+        if len(valid_codes) < 2:
             continue
         # Compute simple Pearson correlation between flattened feature windows
         X = np.stack([feat_dict[c].reshape(-1) for c in valid_codes], axis=0)  # [N, F*T]
@@ -242,6 +243,7 @@ def build_industry_matrix(market: str, codes: List[str], mode: str = "identity")
             try:
                 info = yf.Ticker(c).info  # network call per ticker
                 sectors[c] = info.get("sector", None)
+                print(f"Ticker: {c}, Sector: {sectors[c]}")
             except Exception:
                 sectors[c] = None
         mat = np.zeros((n, n), dtype=np.float32)
@@ -295,26 +297,29 @@ def save_daily_graph(dt: str,
         if month_days:
             last_td = month_days[-1]
             end_idx = stock_trade_dt_s_all.index(last_td)
-            if end_idx >= (lookback - 1):
-                start_date = stock_trade_dt_s_all[end_idx - (lookback - 1)]
-                window = df_all[(df_all["dt"] >= start_date) & (df_all["dt"] <= last_td)]
-                # Build per-code feature windows
-                feat_dict = {}
-                for code in codes:
-                    sub = window[window["kdcode"] == code]
-                    y = sub[["close", "open", "high", "low", "prev_close", "volume"]].values
-                    if y.shape[0] == lookback:
-                        feat_dict[code] = y.reshape(-1)
-                if len(feat_dict) >= 2:
-                    # Align order to codes subset with enough data
-                    valid_codes = [c for c in codes if c in feat_dict]
-                    X = np.stack([feat_dict[c] for c in valid_codes], axis=0)
-                    X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
-                    corr_mat = np.corrcoef(X)
-                    corr_df = pd.DataFrame(corr_mat, index=valid_codes, columns=valid_codes).fillna(0)
-                    for i in range(len(valid_codes)):
-                        corr_df.iat[i, i] = 1.0
-                    corr_df.to_csv(corr_csv)
+            # Use available data even if less than full lookback window
+            start_idx = max(0, end_idx - (lookback - 1))
+            start_date = stock_trade_dt_s_all[start_idx]
+            actual_lookback = end_idx - start_idx + 1
+            window = df_all[(df_all["dt"] >= start_date) & (df_all["dt"] <= last_td)]
+            # Build per-code feature windows
+            feat_dict = {}
+            for code in codes:
+                sub = window[window["kdcode"] == code]
+                y = sub[["close", "open", "high", "low", "prev_close", "volume"]].values
+                # Require at least 2 days for correlation computation
+                if y.shape[0] == actual_lookback and y.shape[0] >= 2:
+                    feat_dict[code] = y.reshape(-1)
+            if len(feat_dict) >= 2:
+                # Align order to codes subset with enough data
+                valid_codes = [c for c in codes if c in feat_dict]
+                X = np.stack([feat_dict[c] for c in valid_codes], axis=0)
+                X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
+                corr_mat = np.corrcoef(X)
+                corr_df = pd.DataFrame(corr_mat, index=valid_codes, columns=valid_codes).fillna(0)
+                for i in range(len(valid_codes)):
+                    corr_df.iat[i, i] = 1.0
+                corr_df.to_csv(corr_csv)
         if not os.path.exists(corr_csv):
             raise FileNotFoundError(f"Correlation CSV not found (and could not be auto-generated): {corr_csv}.")
     corr_df = pd.read_csv(corr_csv, index_col=0)
@@ -340,13 +345,13 @@ def save_daily_graph(dt: str,
         array = df_code_dt[cols].values
         if ts_array.T.shape[1] == lookback and array.shape[0] == 1:
             ts_features.append(ts_array)
-            features.append(array)
+            features.append(array[0])  # Squeeze to [6] instead of [1, 6]
             label = df_ts_code.loc[df_ts_code["dt"] == dt]["label"].values
             labels.append(label[0])
             day_last_code.append([code, dt])
 
     ts_features = torch.from_numpy(np.array(ts_features)).float()
-    features = torch.from_numpy(np.array(features)).float()
+    features = torch.from_numpy(np.array(features)).float()  # Now [num_stocks, 6]
     labels = torch.tensor(labels, dtype=torch.float32)
 
     # Create pyg_data

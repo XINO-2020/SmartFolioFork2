@@ -86,6 +86,10 @@ if __name__ == '__main__':
     parser.add_argument("--reward_net_path", default=None, help="Path to saved IRL reward network state_dict to resume from")
     parser.add_argument("--fine_tune_steps", type=int, default=5000, help="Timesteps for monthly fine-tuning when resuming")
     parser.add_argument("--save_dir", default="./checkpoints", help="Directory to save trained models")
+    # Training hyperparameters
+    parser.add_argument("--irl_epochs", type=int, default=50, help="Number of IRL training epochs")
+    parser.add_argument("--rl_timesteps", type=int, default=10000, help="Number of RL timesteps for training")
+    parser.add_argument("--ga_generations", type=int, default=30, help="Number of GA generations for expert generation")
     args = parser.parse_args()
 
     # debug 用参数设置
@@ -108,6 +112,10 @@ if __name__ == '__main__':
     args.neg_yn = True
     args.multi_reward = True
     args.use_ga_expert = True  # Use GA for expert generation (set False for original heuristic)
+    # Training hyperparameters (can be overridden via command line)
+    args.irl_epochs = getattr(args, 'irl_epochs', 50)
+    args.rl_timesteps = getattr(args, 'rl_timesteps', 10000)
+    args.ga_generations = getattr(args, 'ga_generations', 30)
     # ensure save dir
     os.makedirs(args.save_dir, exist_ok=True)
 
@@ -119,6 +127,35 @@ if __name__ == '__main__':
         args.num_stocks = 84
     elif args.market == 'sp500':
         args.num_stocks = 472
+    elif args.market == 'custom':
+        # Auto-detect num_stocks from a sample pickle file
+        data_dir = f'dataset_default/data_train_predict_{args.market}/{args.horizon}_{args.relation_type}/'
+        sample_files = [f for f in os.listdir(data_dir) if f.endswith('.pkl')]
+        if sample_files:
+            import pickle
+            sample_path = os.path.join(data_dir, sample_files[0])
+            with open(sample_path, 'rb') as f:
+                sample_data = pickle.load(f)
+            args.num_stocks = sample_data['features'].shape[1]
+            print(f"Auto-detected num_stocks for custom market: {args.num_stocks}")
+        else:
+            raise ValueError(f"No pickle files found in {data_dir} to determine num_stocks")
+    else:
+        # Generic fallback for unknown markets
+        data_dir = f'dataset_default/data_train_predict_{args.market}/{args.horizon}_{args.relation_type}/'
+        if os.path.exists(data_dir):
+            import pickle
+            sample_files = [f for f in os.listdir(data_dir) if f.endswith('.pkl')]
+            if sample_files:
+                sample_path = os.path.join(data_dir, sample_files[0])
+                with open(sample_path, 'rb') as f:
+                    sample_data = pickle.load(f)
+                args.num_stocks = sample_data['features'].shape[1]
+                print(f"Auto-detected num_stocks for {args.market} market: {args.num_stocks}")
+            else:
+                raise ValueError(f"No pickle files found in {data_dir} to determine num_stocks")
+        else:
+            raise ValueError(f"Unknown market {args.market} and data directory {data_dir} does not exist")
 
     trained_model = train_predict(args, predict_dt='2025-02-05')
     # save PPO model checkpoint

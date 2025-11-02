@@ -128,9 +128,14 @@ class StockSelectionGA:
         """Evaluate fitness of a chromosome (binary stock selection)"""
         selected_indices = np.where(chromosome == 1)[0]
         n_selected = len(selected_indices)
+        n_stocks = len(returns)
+        
+        # Adjust constraints for small universes
+        min_stocks = min(self.min_stocks, max(2, n_stocks // 2))
+        max_stocks = min(self.max_stocks, n_stocks)
         
         # Hard constraint: Must select correct number of stocks
-        if n_selected < self.min_stocks or n_selected > self.max_stocks:
+        if n_selected < min_stocks or n_selected > max_stocks:
             return -np.inf
         
         # Calculate metrics
@@ -153,8 +158,12 @@ class StockSelectionGA:
         """Initialize random population"""
         population = []
         
+        # Adjust target range if universe is too small
+        min_stocks = min(self.min_stocks, max(2, n_stocks // 2))
+        max_stocks = min(self.max_stocks, n_stocks)
+        
         for _ in range(self.population_size):
-            n_select = np.random.randint(self.min_stocks, self.max_stocks + 1)
+            n_select = np.random.randint(min_stocks, max_stocks + 1)
             chromosome = np.zeros(n_stocks, dtype=int)
             selected_idx = np.random.choice(n_stocks, size=n_select, replace=False)
             chromosome[selected_idx] = 1
@@ -183,6 +192,11 @@ class StockSelectionGA:
     def mutate(self, chromosome: np.ndarray) -> np.ndarray:
         """Bit flip mutation with constraint enforcement"""
         mutated = chromosome.copy()
+        n_stocks = len(mutated)
+        
+        # Adjust constraints for small universes
+        min_stocks = min(self.min_stocks, max(2, n_stocks // 2))
+        max_stocks = min(self.max_stocks, n_stocks)
         
         for i in range(len(mutated)):
             if np.random.rand() < self.mutation_rate:
@@ -191,15 +205,15 @@ class StockSelectionGA:
         # Enforce constraints
         n_selected = np.sum(mutated)
         
-        if n_selected < self.min_stocks:
-            n_to_add = self.min_stocks - n_selected
+        if n_selected < min_stocks:
+            n_to_add = min_stocks - n_selected
             available = np.where(mutated == 0)[0]
             if len(available) >= n_to_add:
                 add_idx = np.random.choice(available, size=n_to_add, replace=False)
                 mutated[add_idx] = 1
         
-        elif n_selected > self.max_stocks:
-            n_to_remove = n_selected - self.max_stocks
+        elif n_selected > max_stocks:
+            n_to_remove = n_selected - max_stocks
             selected = np.where(mutated == 1)[0]
             remove_idx = np.random.choice(selected, size=n_to_remove, replace=False)
             mutated[remove_idx] = 0
@@ -218,6 +232,30 @@ class StockSelectionGA:
         best_overall_fitness = -np.inf
         best_overall_chromosome = None
         
+        # Print initial population statistics
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Initial Population (Generation 0)")
+            print(f"{'='*60}")
+            initial_fitness = np.array([
+                self.evaluate_chromosome(chrom, returns, correlation_matrix, industry_matrix)
+                for chrom in population
+            ])
+            best_init_idx = np.argmax(initial_fitness)
+            print(f"Population size: {self.population_size}")
+            print(f"Best initial fitness: {initial_fitness[best_init_idx]:.4f}")
+            print(f"Best initial selection (stocks selected): {np.where(population[best_init_idx] == 1)[0]}")
+            print(f"Number of stocks selected: {np.sum(population[best_init_idx])}")
+            
+            # Show metrics for best initial
+            selected_idx = np.where(population[best_init_idx] == 1)[0]
+            metrics = self.calculate_fitness_metrics(
+                selected_idx.tolist(), returns, correlation_matrix, industry_matrix
+            )
+            print(f"\nBest Initial Metrics:")
+            for key, val in metrics.items():
+                print(f"  {key:20s}: {val:10.4f} (weight: {self.fitness_weights[key]:+.2f})")
+        
         for generation in range(self.n_generations):
             # Evaluate fitness
             fitness_scores = np.array([
@@ -232,6 +270,9 @@ class StockSelectionGA:
             if gen_best_fitness > best_overall_fitness:
                 best_overall_fitness = gen_best_fitness
                 best_overall_chromosome = population[gen_best_idx].copy()
+                
+                if verbose and generation % 10 == 0:
+                    print(f"\nGen {generation}: New best fitness = {gen_best_fitness:.4f}, stocks = {np.sum(best_overall_chromosome)}")
             
             # Evolution
             new_population = []
@@ -256,6 +297,23 @@ class StockSelectionGA:
             
             population = new_population[:self.population_size]
         
+        # Print final result
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Evolution Complete!")
+            print(f"{'='*60}")
+            print(f"Final best fitness: {best_overall_fitness:.4f}")
+            print(f"Final selected stocks: {np.where(best_overall_chromosome == 1)[0]}")
+            print(f"Number of stocks selected: {np.sum(best_overall_chromosome)}")
+            
+            selected_idx = np.where(best_overall_chromosome == 1)[0]
+            final_metrics = self.calculate_fitness_metrics(
+                selected_idx.tolist(), returns, correlation_matrix, industry_matrix
+            )
+            print(f"\nFinal Metrics:")
+            for key, val in final_metrics.items():
+                print(f"  {key:20s}: {val:10.4f} (weight: {self.fitness_weights[key]:+.2f})")
+        
         return best_overall_chromosome, best_overall_fitness
 
 
@@ -276,6 +334,14 @@ def generate_expert_strategy_ga(returns: np.ndarray,
         risk_config = RiskCategory.AGGRESSIVE
     else:
         risk_config = RiskCategory.MODERATE
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"GA Stock Selection - {risk_config['name'].upper()} Risk")
+        print(f"{'='*60}")
+        print(f"Universe size: {len(returns)} stocks")
+        print(f"Target selection: {risk_config['target_stocks_range'][0]}-{risk_config['target_stocks_range'][1]} stocks")
+        print(f"Fitness weights: {risk_config['weights']}")
     
     # Run GA
     ga = StockSelectionGA(
@@ -403,12 +469,23 @@ def save_expert_trajectories(trajectories: List, save_path: str):
 
 
 if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate GA expert trajectories")
+    parser.add_argument('--market', default='hs300', help='Market name')
+    parser.add_argument('--num_trajectories', type=int, default=1000, help='Number of trajectories to generate')
+    parser.add_argument('--ga_generations', type=int, default=30, help='Number of GA generations')
+    parser.add_argument('--risk_category', default='mixed', choices=['conservative', 'moderate', 'aggressive', 'mixed'],
+                        help='Risk category for expert generation')
+    cmd_args = parser.parse_args()
+    
     class Args:
-        market = 'hs300'
+        market = cmd_args.market
         input_dim = 6
         ind_yn = True
         pos_yn = True
         neg_yn = True
+        ga_generations = cmd_args.ga_generations
     
     args = Args()
     
@@ -427,13 +504,18 @@ if __name__ == '__main__':
         print(f"\n{'='*70}")
         print("GA-ENHANCED EXPERT GENERATION FOR SMARTFOLIO")
         print(f"{'='*70}")
+        print(f"Market: {args.market}")
+        print(f"Trajectories: {cmd_args.num_trajectories}")
+        print(f"GA Generations: {args.ga_generations}")
+        print(f"Risk Category: {cmd_args.risk_category}")
+        print(f"{'='*70}\n")
         
         expert_trajectories = generate_expert_trajectories_ga(
             args,
             train_dataset,
-            num_trajectories=1000,
-            risk_category='mixed',
-            ga_generations=30
+            num_trajectories=cmd_args.num_trajectories,
+            risk_category=cmd_args.risk_category,
+            ga_generations=args.ga_generations
         )
         
         save_path = f'dataset_default/expert_trajectories_{args.market}_ga.pkl'

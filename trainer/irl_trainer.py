@@ -271,7 +271,7 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             train_loader.dataset, 
             num_trajectories=100,
             risk_category='mixed',  # Use all risk categories
-            ga_generations=30
+            ga_generations=getattr(args, 'ga_generations', 30)
         )
     else:
         print("\n" + "="*70)
@@ -310,7 +310,8 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
     for i in range(args.max_epochs):
         print(f"\n=== Epoch {i+1}/{args.max_epochs} ===")
         # 1. 训练IRL奖励函数
-        irl_trainer.train(env_train, model, num_epochs=2,
+        irl_epochs = getattr(args, 'irl_epochs', 50)
+        irl_trainer.train(env_train, model, num_epochs=irl_epochs,
                           batch_size=args.batch_size, device=args.device)
         print("reward net train over.")
 
@@ -328,10 +329,10 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             env_train.seed(seed=args.seed)
             env_train, _ = env_train.get_sb_env()
             model.set_env(env_train)
-            timesteps = int(getattr(args, 'fine_tune_steps', 500))
+            rl_timesteps = getattr(args, 'rl_timesteps', 10000)
             # 3. 训练RL代理
-            print(f"Training RL agent for {timesteps} timesteps...")
-            trained_model = model.learn(total_timesteps=timesteps)
+            print(f"Training RL agent for {rl_timesteps} timesteps...")
+            trained_model = model.learn(total_timesteps=rl_timesteps)
             # 可选评估：留给环境统计输出
     
     # Save reward network checkpoint
