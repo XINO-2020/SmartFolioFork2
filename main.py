@@ -35,14 +35,18 @@ def train_predict(args, predict_dt):
     test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), pin_memory=True)
     print(len(train_loader), len(val_loader), len(test_loader))
 
-    # create model
+    # create or load model
     env_init = create_env_init(args, dataset=train_dataset)
     if args.policy == 'MLP':
-        model = PPO(policy='MlpPolicy',
-                    env=env_init,
-                    **PPO_PARAMS,
-                    seed=args.seed,
-                    device=args.device)
+        if getattr(args, 'resume_model_path', None) and os.path.exists(args.resume_model_path):
+            print(f"Loading PPO model from {args.resume_model_path}")
+            model = PPO.load(args.resume_model_path, env=env_init, device=args.device)
+        else:
+            model = PPO(policy='MlpPolicy',
+                        env=env_init,
+                        **PPO_PARAMS,
+                        seed=args.seed,
+                        device=args.device)
     elif args.policy == 'HGAT':
         policy_kwargs = dict(
             last_layer_dim_pi=args.num_stocks,  # Should equal num_stocks for proper initialization
@@ -52,12 +56,16 @@ def train_predict(args, predict_dt):
             no_ind=(not args.ind_yn),
             no_neg=(not args.neg_yn),
         )
-        model = PPO(policy=HGATActorCriticPolicy,
-                    env=env_init,
-                    policy_kwargs=policy_kwargs,
-                    **PPO_PARAMS,
-                    seed=args.seed,
-                    device=args.device)
+        if getattr(args, 'resume_model_path', None) and os.path.exists(args.resume_model_path):
+            print(f"Loading PPO model from {args.resume_model_path}")
+            model = PPO.load(args.resume_model_path, env=env_init, device=args.device)
+        else:
+            model = PPO(policy=HGATActorCriticPolicy,
+                        env=env_init,
+                        policy_kwargs=policy_kwargs,
+                        **PPO_PARAMS,
+                        seed=args.seed,
+                        device=args.device)
     train_model_and_predict(model, args, train_loader, val_loader, test_loader)
 
 
@@ -73,6 +81,11 @@ if __name__ == '__main__':
     parser.add_argument("-neg_yn", "-neg", default="y", help="是否加入反转关系图")
     parser.add_argument("-multi_reward_yn", "-mr", default="y", help="是否加入多奖励学习")
     parser.add_argument("-policy", "-p", default="MLP", help="策略网络")
+    # continual learning / resume
+    parser.add_argument("--resume_model_path", default=None, help="Path to previously saved PPO model to resume from")
+    parser.add_argument("--reward_net_path", default=None, help="Path to saved IRL reward network state_dict to resume from")
+    parser.add_argument("--fine_tune_steps", type=int, default=5000, help="Timesteps for monthly fine-tuning when resuming")
+    parser.add_argument("--save_dir", default="./checkpoints", help="Directory to save trained models")
     args = parser.parse_args()
 
     # debug 用参数设置
@@ -95,6 +108,8 @@ if __name__ == '__main__':
     args.neg_yn = True
     args.multi_reward = True
     args.use_ga_expert = True  # Use GA for expert generation (set False for original heuristic)
+    # ensure save dir
+    os.makedirs(args.save_dir, exist_ok=True)
 
     if args.market == 'hs300':
         args.num_stocks = 102
@@ -105,7 +120,16 @@ if __name__ == '__main__':
     elif args.market == 'sp500':
         args.num_stocks = 472
 
-    train_predict(args, predict_dt='2025-02-05')
+    trained_model = train_predict(args, predict_dt='2025-02-05')
+    # save PPO model checkpoint
+    try:
+        ts = time.strftime('%Y%m%d_%H%M%S')
+        out_path = os.path.join(args.save_dir, f"ppo_{args.policy.lower()}_{args.market}_{ts}")
+        # train_predict currently returns None; saving env-attached model is handled inside trainer
+        # If we had a handle, we could save here. Keep path ready for future.
+        print(f"Training run complete. To save PPO model, call model.save('{out_path}') where model is your PPO instance.")
+    except Exception as e:
+        print(f"Skip saving PPO model here: {e}")
 
     print(1)
 

@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -288,14 +289,21 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
     
     if not args.multi_reward:
         reward_net = RewardNetwork(input_dim=obs_len+1).to(args.device)
-        irl_trainer = MaxEntIRL(reward_net, expert_trajectories, lr=1e-4)
     else:
         reward_net = MultiRewardNetwork(input_dim=args.input_dim,
                                         num_stocks=args.num_stocks,
                                         ind_yn=args.ind_yn,
                                         pos_yn=args.pos_yn,
                                         neg_yn=args.neg_yn).to(args.device)
-        irl_trainer = MaxEntIRL(reward_net, expert_trajectories, lr=1e-4)
+    # Optional: resume reward network
+    if getattr(args, 'reward_net_path', None) and os.path.exists(args.reward_net_path):
+        try:
+            print(f"Loading reward network from {args.reward_net_path}")
+            state = torch.load(args.reward_net_path, map_location=args.device)
+            reward_net.load_state_dict(state)
+        except Exception as e:
+            print(f"Warning: failed to load reward net: {e}")
+    irl_trainer = MaxEntIRL(reward_net, expert_trajectories, lr=1e-4)
 
     # --- train ---
     env_train = create_env_init(args, data_loader=train_loader)
@@ -320,15 +328,23 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             env_train.seed(seed=args.seed)
             env_train, _ = env_train.get_sb_env()
             model.set_env(env_train)
-            timesteps = 100
+            timesteps = int(getattr(args, 'fine_tune_steps', 500))
             # 3. 训练RL代理
             print(f"Training RL agent for {timesteps} timesteps...")
             trained_model = model.learn(total_timesteps=timesteps)
-            # 评估训练后的模型
-            print("Evaluating policy...")
-            mean_reward, std_reward = evaluate_policy(model, env_train, n_eval_episodes=1)
-            print(f"平均奖励: {mean_reward}")
+            # 可选评估：留给环境统计输出
     
+    # Save reward network checkpoint
+    try:
+        save_dir = getattr(args, 'save_dir', './checkpoints')
+        os.makedirs(save_dir, exist_ok=True)
+        ts = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        ckpt_path = os.path.join(save_dir, f"reward_net_{args.market}_{ts}.pt")
+        torch.save(reward_net.state_dict(), ckpt_path)
+        print(f"Saved reward network to {ckpt_path}")
+    except Exception as e:
+        print(f"Warning: could not save reward net: {e}")
+
     # Final evaluation on test set
     print("\n=== Final Test Evaluation ===")
     model_predict(args, model, test_loader)
