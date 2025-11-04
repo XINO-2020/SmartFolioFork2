@@ -90,6 +90,10 @@ if __name__ == '__main__':
     parser.add_argument("--irl_epochs", type=int, default=50, help="Number of IRL training epochs")
     parser.add_argument("--rl_timesteps", type=int, default=10000, help="Number of RL timesteps for training")
     parser.add_argument("--ga_generations", type=int, default=30, help="Number of GA generations for expert generation")
+    # Expert generation strategy
+    parser.add_argument("--expert_type", type=str, default="ga", 
+                        choices=["ga", "ensemble", "heuristic"],
+                        help="Expert generation strategy: ga=Genetic Algorithm, ensemble=Hybrid Ensemble (MV+RP+MinVar+MaxSharpe), heuristic=Original")
     # Risk-adaptive reward parameters
     parser.add_argument("--risk_score", type=float, default=0.5, help="User risk score: 0=conservative, 1=aggressive")
     parser.add_argument("--dd_base_weight", type=float, default=1.0, help="Base weight for drawdown penalty")

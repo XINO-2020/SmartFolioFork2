@@ -304,9 +304,19 @@ def model_predict(args, model, test_loader):
 
 def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
     # --- 生成专家轨迹 ---
-    use_ga = getattr(args, 'use_ga_expert', True)  # Default to GA
+    expert_type = getattr(args, 'expert_type', 'ga')  # Options: 'ga', 'ensemble', 'heuristic'
     
-    if use_ga:
+    if expert_type == 'ensemble':
+        print("\n" + "="*70)
+        print("Using Hybrid Ensemble Expert Generation")
+        print("="*70)
+        from gen_data.gen_expert_ensemble import generate_expert_trajectories
+        expert_trajectories = generate_expert_trajectories(
+            args, 
+            train_loader.dataset, 
+            num_trajectories=1000
+        )
+    elif expert_type == 'ga':
         print("\n" + "="*70)
         print("Using GA-Enhanced Expert Generation")
         print("="*70)
@@ -315,10 +325,10 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             args, 
             train_loader.dataset, 
             num_trajectories=1000,
-            risk_category='conservative',  # Use all risk categories
+            risk_category='conservative',
             ga_generations=getattr(args, 'ga_generations', 30)
         )
-    else:
+    else:  # 'heuristic' or fallback
         print("\n" + "="*70)
         print("Using Original Heuristic Expert Generation")
         print("="*70)
@@ -385,6 +395,10 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             # 可选评估：留给环境统计输出
             mean_reward, std_reward = evaluate_policy(trained_model, env_train, n_eval_episodes=1)
             print(f"Evaluation after RL training: Mean Reward = {mean_reward:.4f}, Std Reward = {std_reward:.4f}")
+
+        # 4. Intermediate test evaluation to print ARR/AVOL/Sharpe/MDD/CR/IR
+        print("\n=== Intermediate Test Evaluation (after RL learn) ===")
+        model_predict(args, model, test_loader)
     # Save reward network checkpoint
     try:
         save_dir = getattr(args, 'save_dir', './checkpoints')
@@ -399,4 +413,16 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
     # Final evaluation on test set
     print("\n=== Final Test Evaluation ===")
     model_predict(args, model, test_loader)
+    
+    # Save PPO model checkpoint at the end of training
+    try:
+        save_dir = getattr(args, 'save_dir', './checkpoints')
+        os.makedirs(save_dir, exist_ok=True)
+        ts = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        policy_name = getattr(args, 'policy', 'policy').lower()
+        ckpt_path = os.path.join(save_dir, f"ppo_{policy_name}_{args.market}_{ts}.zip")
+        model.save(ckpt_path)
+        print(f"Saved PPO model checkpoint to {ckpt_path}")
+    except Exception as e:
+        print(f"Warning: could not save PPO model: {e}")
     return model
