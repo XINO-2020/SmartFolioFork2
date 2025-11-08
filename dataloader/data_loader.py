@@ -1,8 +1,11 @@
+import json
 import os
-import sys
 import pickle
-from torch.utils import data
+import sys
+from typing import Dict
+
 import torch
+from torch.utils import data
 
 class AllGraphDataSampler(data.Dataset):
     def __init__(self, base_dir, gname_list=None,
@@ -17,9 +20,16 @@ class AllGraphDataSampler(data.Dataset):
         self.data_start = data_start
         self.data_middle = data_middle
         self.data_end = data_end
+        self.manifest_path = os.path.join(self.data_dir, "monthly_manifest.json")
+        self.manifest = self._load_manifest()
+        self.monthly_index = self._build_monthly_index()
+        self._monthly_cache: Dict[str, Dict[str, object]] = {}
         if gname_list is None:
-            self.gnames_all = os.listdir(self.data_dir)
-            self.gnames_all.sort()
+            base_entries = []
+            if os.path.isdir(self.data_dir):
+                base_entries = [f for f in os.listdir(self.data_dir) if f.endswith(".pkl") and f != "monthly_manifest.json"]
+            monthly_dates = sorted(self.monthly_index.keys())
+            self.gnames_all = monthly_dates + sorted(base_entries)
         if idx:
             if mode == "train":
                 self.gnames_all = self.gnames_all[self.data_start:self.data_middle]
@@ -56,7 +66,11 @@ class AllGraphDataSampler(data.Dataset):
             sys.stdout.flush()
             sys.stdout.write('{} data loading: {:.2f}%{}'.format(self.mode, i*100/length, '\r'))
             try:
-                item = pickle.load(open(os.path.join(self.data_dir, self.gnames_all[i]), "rb"))
+                name = self.gnames_all[i]
+                if name in self.monthly_index:
+                    item = self._load_from_monthly(name)
+                else:
+                    item = pickle.load(open(os.path.join(self.data_dir, name), "rb"))
             except Exception as e:
                 print(f"\nWarning: failed to load {self.gnames_all[i]}: {e}. Skipping.")
                 continue
@@ -103,3 +117,39 @@ class AllGraphDataSampler(data.Dataset):
             if date == self.gnames_all[i][:10]:
                 result = i
         return result
+
+    def _load_manifest(self):
+        if os.path.exists(self.manifest_path):
+            try:
+                with open(self.manifest_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                print(f"Warning: manifest {self.manifest_path} is invalid JSON; ignoring.")
+        return {}
+
+    def _build_monthly_index(self) -> Dict[str, str]:
+        daily_index = self.manifest.get("daily_index", {}) if isinstance(self.manifest, dict) else {}
+        resolved = {}
+        for date, rel_path in daily_index.items():
+            resolved[date] = os.path.join(self.data_dir, rel_path)
+        return resolved
+
+    def _load_from_monthly(self, date: str):
+        shard_path = self.monthly_index[date]
+        cache = self._monthly_cache.get(shard_path)
+        if cache is None:
+            try:
+                cache = pickle.load(open(shard_path, "rb"))
+            except Exception as exc:  # pragma: no cover - safeguard
+                raise RuntimeError(f"Failed to read monthly shard {shard_path}: {exc}") from exc
+            if not isinstance(cache, dict) or "dates" not in cache or "items" not in cache:
+                raise RuntimeError(
+                    f"Monthly shard {shard_path} is malformed; expected a dict with 'dates' and 'items'."
+                )
+            # Build lookup for quick access
+            cache["_map"] = {d: item for d, item in zip(cache["dates"], cache["items"])}
+            self._monthly_cache[shard_path] = cache
+        item = cache["_map"].get(date)
+        if item is None:
+            raise KeyError(f"Date {date} not present in monthly shard {shard_path}.")
+        return item
