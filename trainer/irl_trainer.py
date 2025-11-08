@@ -430,9 +430,9 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             rl_timesteps = getattr(args, 'rl_timesteps', 10000)
             # 3. 训练RL代理
             print(f"Training RL agent for {rl_timesteps} timesteps...")
-            trained_model = model.learn(total_timesteps=rl_timesteps)
+            model = model.learn(total_timesteps=rl_timesteps)
             # 可选评估：留给环境统计输出
-            mean_reward, std_reward = evaluate_policy(trained_model, env_train, n_eval_episodes=1)
+            mean_reward, std_reward = evaluate_policy(model, env_train, n_eval_episodes=1)
             print(f"Evaluation after RL training: Mean Reward = {mean_reward:.4f}, Std Reward = {std_reward:.4f}")
 
         # 4. Intermediate test evaluation to print ARR/AVOL/Sharpe/MDD/CR/IR
