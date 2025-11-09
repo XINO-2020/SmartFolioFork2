@@ -434,7 +434,6 @@ def train_model_and_predict(model, args, train_loader, val_loader, test_loader):
             # 可选评估：留给环境统计输出
             mean_reward, std_reward = evaluate_policy(model, env_train, n_eval_episodes=1)
             print(f"Evaluation after RL training: Mean Reward = {mean_reward:.4f}, Std Reward = {std_reward:.4f}")
-
         # 4. Intermediate test evaluation to print ARR/AVOL/Sharpe/MDD/CR/IR
         print("\n=== Intermediate Test Evaluation (after RL learn) ===")
         model_predict(args, model, test_loader, split=f"epoch{i+1}_test")
