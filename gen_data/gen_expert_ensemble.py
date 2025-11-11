@@ -1,5 +1,5 @@
 """
-Hybrid Ensemble Expert Strategy - Fixed for Continuous Weights
+Hybrid Ensemble Expert Strategy - Fixed for Weights
 """
 
 import numpy as np
@@ -40,7 +40,7 @@ class RobustMarkowitz:
     def optimize(self, returns, expected_returns=None, constraints=None):
         """
         Optimize portfolio weights using robust Markowitz
-        Returns CONTINUOUS weights, not binary
+        Returns weights
         """
         n_assets = returns.shape[1] if len(returns.shape) > 1 else len(returns)
         
@@ -103,7 +103,7 @@ class RobustMarkowitz:
         else:
             weights = clipped / s
         
-        return weights  # ← CONTINUOUS weights
+        return weights  # ← weights
 
 
 class BlackLitterman:
@@ -132,7 +132,7 @@ class BlackLitterman:
     
     def optimize(self, returns, cov_matrix, correlation_matrix, industry_matrix, 
                  market_cap_weights=None, constraints=None):
-        """Black-Litterman optimization - returns CONTINUOUS weights"""
+        """Black-Litterman optimization - returns weights"""
         n_assets = len(returns)
         
         if market_cap_weights is None:
@@ -168,7 +168,7 @@ class BlackLitterman:
         markowitz = RobustMarkowitz(risk_aversion=self.risk_aversion)
         weights = markowitz.optimize(returns, expected_returns=mu_bl, constraints=constraints)
         
-        return weights  # ← CONTINUOUS weights
+        return weights  # ← weights
 
 
 class RiskParity:
@@ -178,7 +178,7 @@ class RiskParity:
         pass
     
     def optimize(self, returns, constraints=None):
-        """Risk Parity optimization - returns CONTINUOUS weights"""
+        """Risk Parity optimization - returns weights"""
         if len(returns.shape) == 1:
             returns_2d = np.tile(returns, (5, 1))
             returns_2d += np.random.randn(*returns_2d.shape) * 0.01
@@ -231,7 +231,7 @@ class RiskParity:
         else:
             weights = clipped / s
         
-        return weights  # ← CONTINUOUS weights
+        return weights  # ← weights
 
 
 class HRP:
@@ -292,7 +292,7 @@ class HRP:
         return w
     
     def optimize(self, returns, constraints=None):
-        """HRP optimization - returns CONTINUOUS weights"""
+        """HRP optimization - returns weights"""
         if len(returns.shape) == 1:
             returns_2d = np.tile(returns, (5, 1))
             returns_2d += np.random.randn(*returns_2d.shape) * 0.01
@@ -338,13 +338,12 @@ class HRP:
         else:
             weights = clipped / s
         
-        return weights  # ← CONTINUOUS weights
+        return weights
 
 
 class HybridEnsembleExpert:
     """
     Hybrid ensemble of multiple expert strategies
-    NOW OUTPUTS CONTINUOUS WEIGHTS (not binary)
     """
     
     def __init__(self, ensemble_weights=None, randomize_params=True):
@@ -391,10 +390,9 @@ class HybridEnsembleExpert:
                               pos_matrix=None, neg_matrix=None, constraints=None):
         """
         Generate expert action using ensemble of methods
-        NOW RETURNS CONTINUOUS WEIGHTS (not binary actions)
         
         Returns:
-            Continuous weight vector [n_assets] that sums to 1.0
+         weight vector [n_assets]
         """
         n_assets = len(returns)
         
@@ -465,7 +463,7 @@ class HybridEnsembleExpert:
             weights = weights / (weights.sum() + 1e-8)
             return weights
         
-        # Ensemble: weighted average of continuous weights by method name
+        # Ensemble: weighted average of weights by method name
         ensemble_weights = np.zeros(n_assets, dtype=float)
         for method, alpha in self.ensemble_weights.items():
             if method in expert_weights_map:
@@ -487,21 +485,18 @@ class HybridEnsembleExpert:
         clipped[clipped < min_weight] = 0.0
         s = clipped.sum()
         if s <= 1e-12:
-            # Keep original normalized ensemble if clipping would zero everything
             pass
         else:
             ensemble_weights = clipped / s
         
-        return ensemble_weights  # ← CONTINUOUS weights that sum to 1.0
+        return ensemble_weights  
 
 
 def generate_expert_trajectories(args, dataset, num_trajectories=100):
     """
     Generate expert trajectories using hybrid ensemble
-    NOW OUTPUTS CONTINUOUS WEIGHTS
-    
     Returns:
-        List of (state, continuous_weights) tuples
+        List of (state, weights) tuples
     """
     expert_trajectories = []
     
@@ -534,7 +529,7 @@ def generate_expert_trajectories(args, dataset, num_trajectories=100):
         }
         
         try:
-            # Generate expert CONTINUOUS weights (not binary!)
+            # Generate expert weights
             expert_weights = expert.generate_expert_action(
                 returns=returns,
                 correlation_matrix=correlation_matrix,
@@ -567,14 +562,14 @@ def generate_expert_trajectories(args, dataset, num_trajectories=100):
         state_parts.append(features.flatten())
         state = np.concatenate(state_parts)
         
-        expert_trajectories.append((state, expert_weights))  # ← CONTINUOUS weights
+        expert_trajectories.append((state, expert_weights))  # ← weights
         
         if (traj_idx + 1) % 100 == 0:
             print(f"  Generated {traj_idx + 1}/{num_trajectories} trajectories")
     
     print(f"\nGenerated {len(expert_trajectories)} trajectories")
     
-    # Statistics for continuous weights
+    # Statistics for weights
     all_weights = [a for _, a in expert_trajectories]
     avg_weight_sum = np.mean([np.sum(w) for w in all_weights])
     avg_nonzero = np.mean([np.sum(w > 0.01) for w in all_weights])
@@ -629,14 +624,12 @@ if __name__ == '__main__':
     # Initialize expert
     expert = HybridEnsembleExpert(randomize_params=False)
     
-    # Generate CONTINUOUS weights (not binary!)
     weights = expert.generate_expert_action(
         returns=returns,
         correlation_matrix=correlation_matrix,
         industry_matrix=industry_matrix
     )
-    
-    print(f"\nGenerated CONTINUOUS weights (not binary):")
+    print("Generated expert weights:")
     print(f"  Shape: {weights.shape}")
     print(f"  Sum: {weights.sum():.6f} (should be 1.0)")
     print(f"  Max weight: {weights.max():.3%}")
@@ -646,4 +639,4 @@ if __name__ == '__main__':
     for idx in top_5_idx:
         print(f"    Stock {idx}: {weights[idx]:.3%}")
     
-    print("\n✓ Hybrid Ensemble Expert (CONTINUOUS WEIGHTS) implementation complete!")
+    print("\nHybrid Ensemble Expert implementation complete!")
