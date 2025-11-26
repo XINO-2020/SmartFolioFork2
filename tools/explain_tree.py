@@ -139,17 +139,24 @@ def build_feature_names(
     input_dim: int,
     feature_labels: Sequence[str],
     relation_labels: Sequence[str],
+    tickers: Sequence[str] = None,
 ) -> List[str]:
     names: List[str] = []
     relation_labels = list(relation_labels)
+
+    def get_ticker_name(idx):
+        if tickers and idx < len(tickers):
+            return str(tickers[idx])
+        return f"Stock[{idx}]"
+
     for relation in relation_labels:
         for i in range(num_stocks):
             for j in range(num_stocks):
-                names.append(f"{relation}[{i},{j}]")
+                names.append(f"{relation}[{get_ticker_name(i)},{get_ticker_name(j)}]")
     for stock_idx in range(num_stocks):
         for feat_idx in range(input_dim):
             label = feature_labels[feat_idx] if feat_idx < len(feature_labels) else f"Feature_{feat_idx}"
-            names.append(f"Stock[{stock_idx}]::{label}")
+            names.append(f"{get_ticker_name(stock_idx)}::{label}")
     return names
 
 
@@ -338,7 +345,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"feature-names count {len(feature_labels)} does not match inferred input_dim {args.input_dim}"
             )
     else:
-        feature_labels = [f"Feature_{idx}" for idx in range(args.input_dim)]
+        # Defaults based on build_dataset_yf.py
+        if args.input_dim == 6:
+            feature_labels = ["Close", "Open", "High", "Low", "Prev_Close", "Volume"]
+        else:
+            feature_labels = [f"Feature_{idx}" for idx in range(args.input_dim)]
 
     relation_labels = [args.ind_label, args.pos_label, args.neg_label]
 
@@ -377,7 +388,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     fidelity = r2_score(Y, Y_hat, multioutput="uniform_average")
     print(f"Global surrogate R²: {fidelity:.4f}")
 
-    feature_names = build_feature_names(args.num_stocks, args.input_dim, feature_labels, relation_labels)
+    # Build feature names with ticker mapping
+    tickers_list = tickers.get("tickers") if tickers else None
+    feature_names = build_feature_names(
+        args.num_stocks,
+        args.input_dim,
+        feature_labels,
+        relation_labels,
+        tickers=tickers_list
+    )
 
     avg_weights = Y.mean(axis=0)
     top_indices = np.argsort(avg_weights)[::-1][: args.top_k_stocks]
@@ -390,12 +409,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         stock_r2 = r2_score(Y[:, stock_idx], tree.predict(X))
         importances = tree.feature_importances_
         top_features = np.argsort(importances)[::-1][:10]
+        
+        # Export text uses the updated feature_names containing tickers
         readable_rules = export_text(tree, feature_names=feature_names, max_depth=args.max_depth)
 
         print("\n" + "=" * 80)
         print(f"Rank {rank}: Stock {stock_idx} ({stock_label})")
-        print(f"Average weight: {avg_weights[stock_idx]:.4%}")
-        print(f"R² (single-output tree): {stock_r2:.4f}")
+        # print(f"Average weight: {avg_weights[stock_idx]:.4%}")  # Removed as requested
         print("Top feature contributions:")
         for idx in top_features:
             if importances[idx] <= 0:
@@ -406,7 +426,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         per_stock_rules[stock_idx] = {
             "ticker": stock_label,
             "avg_weight": float(avg_weights[stock_idx]),
-            "r2": float(stock_r2),
             "feature_importances": {
                 feature_names[idx]: float(importances[idx]) for idx in top_features if importances[idx] > 0
             },
