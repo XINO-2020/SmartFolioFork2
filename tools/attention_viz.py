@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Collect and summarise HGAT attention patterns.
 
-This utility replays a trained PPO policy on the custom ``StockPortfolioEnv``
-and records every attention tensor emitted by the HGAT backbone. The resulting
-statistics can be used to build heatmaps or temporal plots that explain how the
-model routes information between stocks.
-
-Example
--------
-python tools/attention_viz.py \
-    --model-path ./checkpoints/ppo_hgat_custom_20251108_103925.zip \
-    --market custom \
-    --test-start-date 2024-01-02 \
-    --test-end-date 2024-12-26 \
-    --output-dir ./explainability_results \
-    --save-raw --plot
-"""
 from __future__ import annotations
 
 import argparse
@@ -126,19 +110,27 @@ def process_data(batch: Dict[str, torch.Tensor], device: torch.device) -> Tuple[
 
 
 def top_edges(matrix: np.ndarray, k: int = 5) -> List[Tuple[int, int, float]]:
-    """Return the top-K directed edges by average attention weight."""
+    """Return the top-K directed edges by average attention weight, excluding self-loops."""
     flat = matrix.reshape(-1)
     if flat.size == 0:
         return []
-    k = min(k, flat.size)
-    indices = np.argpartition(flat, -k)[-k:]
-    sorted_idx = indices[np.argsort(flat[indices])[::-1]]
     size = matrix.shape[0]
+    
+    # Create a copy and zero out diagonal (self-loops)
+    matrix_no_diag = matrix.copy()
+    np.fill_diagonal(matrix_no_diag, 0)
+    flat_no_diag = matrix_no_diag.reshape(-1)
+    
+    k = min(k, flat_no_diag.size)
+    indices = np.argpartition(flat_no_diag, -k)[-k:]
+    sorted_idx = indices[np.argsort(flat_no_diag[indices])[::-1]]
+    
     results: List[Tuple[int, int, float]] = []
     for idx in sorted_idx:
         row = int(idx // size)
         col = int(idx % size)
-        results.append((row, col, float(matrix[row, col])))
+        if row != col:  # Extra safety check
+            results.append((row, col, float(matrix[row, col])))
     return results
 
 
@@ -186,17 +178,34 @@ def collect_attention(
             with torch.no_grad():
                 features_tensor = model.policy.extract_features(obs_tensor.to(device))
                 logits, attn = model.policy.mlp_extractor.policy_net(features_tensor, require_weights=True)
+            
+            # Validate that attention weights were returned
+            if attn is None:
+                raise RuntimeError(
+                    "Model returned None for attention weights. "
+                    "Check that model.py HGAT.forward() returns (logits, attn_dict) when require_weights=True."
+                )
+            
+            if not isinstance(attn, dict):
+                raise TypeError(
+                    f"Expected attention weights as dict, got {type(attn).__name__}. "
+                    "Check model.py HGAT.forward() return format."
+                )
+            
             allocation_history.append(logits.detach().cpu().numpy()[0])
 
             for key in ("industry", "positive", "negative"):
                 weights = attn.get(key)
                 if weights is None:
+                    print(f"[WARN] Step {step}: Missing '{key}' attention weights")
                     continue
                 relation_history[key].append(weights.detach().cpu().numpy()[0])
 
             semantic = attn.get("semantic")
             if semantic is not None:
                 semantic_history.append(semantic.detach().cpu().numpy()[0])
+            else:
+                print(f"[WARN] Step {step}: Missing 'semantic' attention weights")
 
             action, _ = model.predict(obs, deterministic=args.deterministic)
             obs, rewards, dones, _info = vec_env.step(action)
@@ -426,6 +435,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         component_labels = ["Self", "Industry"]
 
     attention = collect_attention(test_loader, model, args, torch.device(args.device), component_labels)
+    
+    # Validate that attention data was captured
+    total_captured = sum(attention[key].size for key in ("industry", "positive", "negative", "semantic"))
+    if total_captured == 0:
+        raise RuntimeError(
+            "No attention data was captured. All attention arrays are empty. "
+            "This indicates the model is not returning attention weights properly."
+        )
+    
+    print(f"\nCaptured attention data:")
+    for key in ("industry", "positive", "negative", "semantic"):
+        shape = attention[key].shape
+        print(f"  {key:>10}: shape {shape}, size {attention[key].size}")
+    
     summary = summarise_attention(attention)
 
     output_dir = _ensure_dir(Path(args.output_dir).expanduser().resolve())
