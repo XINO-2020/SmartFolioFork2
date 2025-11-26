@@ -6,12 +6,14 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 import torch
+from pandas.tseries.offsets import MonthEnd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-from pandas.tseries.offsets import MonthEnd
 from torch.autograd import Variable
 from torch_geometric.data import Data
 from tqdm import tqdm
+
+from tools.pathway_features import compute_rolling_mean_std_pathway
 
 # Optional dependency; this file is meant to be run as a standalone data builder
 try:
@@ -93,16 +95,20 @@ def get_label(df: pd.DataFrame, horizon: int = 1) -> pd.DataFrame:
 
 
 def cal_rolling_mean_std(df: pd.DataFrame, cal_cols: List[str], lookback: int = 5) -> pd.DataFrame:
-    df = df.sort_values(by=["kdcode", "dt"])  # sort by ticker, date
-    for col in cal_cols:
-        df[f"{col}_mean"] = df.groupby("kdcode")[col].transform(
-            lambda x: x.rolling(window=lookback, min_periods=1).mean()
-        )
-        df[f"{col}_std"] = df.groupby("kdcode")[col].transform(
-            lambda x: x.rolling(window=lookback, min_periods=1).std()
-        )
-    df = df.dropna().reset_index(drop=True)
-    return df
+    try:
+        return compute_rolling_mean_std_pathway(df, cal_cols, lookback)
+    except Exception as exc:
+        print(f"[warn] Pathway rolling failed ({exc}); falling back to pandas.")
+        df = df.sort_values(by=["kdcode", "dt"])  # sort by ticker, date
+        for col in cal_cols:
+            df[f"{col}_mean"] = df.groupby("kdcode")[col].transform(
+                lambda x: x.rolling(window=lookback, min_periods=1).mean()
+            )
+            df[f"{col}_std"] = df.groupby("kdcode")[col].transform(
+                lambda x: x.rolling(window=lookback, min_periods=1).std()
+            )
+        df = df.dropna().reset_index(drop=True)
+        return df
 
 
 def _zscore_safe(series: pd.Series) -> pd.Series:

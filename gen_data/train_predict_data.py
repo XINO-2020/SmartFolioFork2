@@ -1,15 +1,18 @@
-import pandas as pd
-import numpy as np
-import torch
-import pickle
 import os
-from tqdm import tqdm
+import pickle
+
 import networkx as nx
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
+import numpy as np
+import pandas as pd
+import torch
 from pandas.tseries.offsets import MonthEnd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 from torch.autograd import Variable
 from torch_geometric.data import Data
+from tqdm import tqdm
+
+from tools.pathway_features import compute_rolling_mean_std_pathway
 
 STOCK_DATA_PATH = f"../dataset/"
 
@@ -32,7 +35,17 @@ def get_label(df, horizon=1):
     return df
 
 
-def cal_rolling_mean_std(df, cal_cols=['close'], lookback=5):
+def cal_rolling_mean_std(df, cal_cols=['close'], lookback=5, use_pathway=True):
+    """
+    Rolling mean/std per ticker. If use_pathway=True, compute via Pathway sliding windows;
+    otherwise fallback to pandas groupby/rolling.
+    """
+    if use_pathway:
+        try:
+            return compute_rolling_mean_std_pathway(df, cal_cols, lookback)
+        except Exception as exc:
+            print(f"[warn] Pathway rolling failed ({exc}); falling back to pandas.")
+
     df = df.sort_values(by=['kdcode', 'dt'])  # Sort by ticker and date
     for col in cal_cols:
         df[f"{col}_mean"] = df.groupby('kdcode')[col].transform(
