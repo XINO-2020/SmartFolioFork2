@@ -13,6 +13,7 @@ from torch.autograd import Variable
 from torch_geometric.data import Data
 from tqdm import tqdm
 
+from tools.pathway_alignment import asof_align_macro
 from tools.pathway_features import compute_rolling_mean_std_pathway
 
 # Optional dependency; this file is meant to be run as a standalone data builder
@@ -471,6 +472,17 @@ def main():
         base_cols=["close_mean", "close_std", "volume_mean", "volume_std"],
         n_clusters=4,
     )
+
+    # Optional macro alignment: attach index_data/{market}_index.csv via asof_join if available
+    idx_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", "index_data"))
+    idx_path = os.path.join(idx_dir, f"{args.market}_index.csv")
+    if os.path.exists(idx_path):
+        try:
+            macro_df = pd.read_csv(idx_path)
+            df_norm = asof_align_macro(df_norm, macro_df, suffix="macro_")
+            print(f"Aligned macro features from {idx_path}")
+        except Exception as exc:
+            print(f"[warn] Failed to align macro features ({exc}); continuing without macro columns.")
 
     # dates and codes
     df_all = df_norm.copy()
