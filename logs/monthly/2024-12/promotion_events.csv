@@ -1,0 +1,2 @@
+created_at,promoted,reasons,candidate_path,baseline_path,count,arr,avol,sharpe,mdd,cr,ir
+2025-11-28T01:54:05.436328,True,[],./checkpoints/ppo_hgat_custom_20251128_015405.zip,./checkpoints/baseline.zip,1,0.2739649627369185,0.16656020411543082,1.4544315716487917,-0.09896751074331966,2.768231318331013,0.04247695253429649

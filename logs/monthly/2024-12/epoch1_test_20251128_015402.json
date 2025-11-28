@@ -1,0 +1,19 @@
+[
+  {
+    "run_id": "epoch1_test_20251128_015402_0",
+    "created_at": "2025-11-28T01:54:02.157418",
+    "split": "epoch1_test",
+    "batch_index": 0,
+    "market": "custom",
+    "model_name": "SmartFolio",
+    "policy": "HGAT",
+    "evaluation_start": "2024-01-02",
+    "evaluation_end": "2024-12-26",
+    "arr": 0.2595744774351716,
+    "avol": 0.1673520296849317,
+    "sharpe": 1.3796047062451222,
+    "mdd": -0.12109463249738417,
+    "cr": 2.14356715968215,
+    "ir": -0.0038830189933369503
+  }
+]
