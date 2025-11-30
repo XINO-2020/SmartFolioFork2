@@ -123,13 +123,23 @@ def _run_inference(req: InferenceRequest) -> Dict[str, Any]:
 
     for batch_idx, data in enumerate(test_loader):
         corr, ts_features, features, ind, pos, neg, labels, pyg_data, mask = process_data(data, device=device)
+    
+    # FIX: Extract actual input_dim from ts_features shape
+    # ts_features shape: (num_stocks, lookback, input_dim) or (batch, num_stocks, lookback, input_dim)
+        if len(ts_features.shape) == 4:
+            actual_input_dim = ts_features.shape[-1]
+        elif len(ts_features.shape) == 3:
+            actual_input_dim = ts_features.shape[-1]
+        else:
+            actual_input_dim = features.shape[-1]
+    
         args_stub = argparse.Namespace(
             risk_score=req.risk_score,
             ind_yn=req.ind_yn,
             pos_yn=req.pos_yn,
             neg_yn=req.neg_yn,
             lookback=req.lookback,
-            input_dim=req.input_dim or features.shape[-1],
+            input_dim=actual_input_dim,  
         )
         benchmark_return = None
         idx_path = Path(f"./dataset_default/index_data/{req.market}_index.csv")

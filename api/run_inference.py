@@ -104,13 +104,22 @@ def main():
 
     for batch_idx, data in enumerate(test_loader):
         corr, ts_features, features, ind, pos, neg, labels, pyg_data, mask = process_data(data, device=device)
+    
+    # FIX: Extract actual input_dim from ts_features shape
+        if len(ts_features.shape) == 4:
+            actual_input_dim = ts_features.shape[-1]
+        elif len(ts_features.shape) == 3:
+            actual_input_dim = ts_features.shape[-1]
+        else:
+            actual_input_dim = features.shape[-1]
+    
         args_stub = argparse.Namespace(
             risk_score=args.risk_score,
             ind_yn=args.ind_yn,
             pos_yn=args.pos_yn,
             neg_yn=args.neg_yn,
             lookback=args.lookback,
-            input_dim=features.shape[-1],
+            input_dim=actual_input_dim,  
         )
         env_test = StockPortfolioEnv(
             args=args_stub,
