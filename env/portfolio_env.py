@@ -222,51 +222,33 @@ class StockPortfolioEnv(gym.Env):
         return self.observation, self.reward, self.done, {}
 
     def _apply_risk_constraints(self, weights):
-        """Apply individual weight caps AND sector exposure caps."""
-        
-        # 1. Apply Individual Stock Cap (Existing Logic)
+        """
+        Apply weight caps with iterative renormalization.
+        We loop until the constraints are satisfied or we hit a limit.
+        """
         if self.max_weight_cap is not None and self.max_weight_cap > 0:
-            weights = np.minimum(weights, self.max_weight_cap)
-            if self.min_weight_floor > 0:
-                weights = np.maximum(weights, self.min_weight_floor)
-        
-        # 2. Apply Sector Cap (New Logic)
-        if self.sector_cap is not None and self.ind_yn:
-            # We need the industry matrix to know which stocks belong to which sector.
-            # We grab it from the current step's tensor.
-            if torch.is_tensor(self.ind_tensor):
-                ind_matrix = self.ind_tensor[self.current_step].cpu().numpy()
-            else:
-                ind_matrix = self.ind_tensor[self.current_step]
-            
-            # Identify unique sectors.
-            # ind_matrix rows are "masks" for each sector. 
-            # We iterate through unique rows to find unique sectors.
-            # (Note: This assumes the matrix is a clean block-diagonal or similar structure where 
-            # rows for stocks in the same sector are identical)
-            unique_sectors = np.unique(ind_matrix, axis=0)
-            
-            for sector_mask in unique_sectors:
-                # sector_mask is 1.0 for stocks in this sector, 0.0 otherwise
-                if sector_mask.sum() == 0: continue # Skip empty/padding rows
+            # Iterative correction (Water-filling approximation)
+            # Run 10-20 times to ensure convergence even for extreme "shouting"
+            for _ in range(20): 
+                # 1. Clip
+                weights = np.minimum(weights, self.max_weight_cap)
                 
-                # Calculate total weight currently in this sector
-                current_sector_weight = np.dot(weights, sector_mask)
+                # 2. Floor (Optional)
+                if self.min_weight_floor > 0:
+                    weights = np.maximum(weights, self.min_weight_floor)
                 
-                # If violation, scale down ONLY this sector's stocks
-                if current_sector_weight > self.sector_cap:
-                    scale_factor = self.sector_cap / current_sector_weight
-                    # Apply scale factor where mask is 1
-                    weights = np.where(sector_mask == 1, weights * scale_factor, weights)
-
-        # 3. Final Normalization
-        # Caps might have reduced the total sum below 1.0, so we re-normalize.
-        total = weights.sum()
-        if total > 1e-8:
-            return weights / total
-        
-        # Fallback if everything became zero (shouldn't happen)
-        return np.ones_like(weights) / len(weights)
+                # 3. Normalize
+                total = weights.sum()
+                if total > 1e-8:
+                    weights = weights / total
+                else:
+                    return np.ones_like(weights) / len(weights)
+                
+                # Optimization: Break early if constraints are met
+                if weights.max() <= self.max_weight_cap + 1e-4:
+                    break
+                    
+        return weights
 
     def get_sb_env(self):
         e = DummyVecEnv([lambda: self])
