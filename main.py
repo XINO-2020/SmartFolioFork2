@@ -266,6 +266,13 @@ def fine_tune_month(args, manifest_path="monthly_manifest.json", bookkeeping_pat
     # --- 1. Manifest Loading & Discovery ---
     if not os.path.exists(manifest_file) and getattr(args, "discover_months_with_pathway", False):
         base_dir_guess = f'dataset_default/data_train_predict_{args.market}/{args.horizon}_{args.relation_type}/'
+        
+        # [FIX] Create directory for manifest if it doesn't exist
+        manifest_dir = os.path.dirname(manifest_file)
+        if manifest_dir and not os.path.exists(manifest_dir):
+            print(f"Creating missing directory for manifest: {manifest_dir}")
+            os.makedirs(manifest_dir, exist_ok=True)
+
         try:
             shards = build_monthly_shards_with_pathway(
                 base_dir_guess,
@@ -291,6 +298,11 @@ def fine_tune_month(args, manifest_path="monthly_manifest.json", bookkeeping_pat
             f'dataset_default/data_train_predict_{args.market}/{args.horizon}_{args.relation_type}/',
         )
         try:
+            # [FIX] Ensure directory exists (safe check)
+            manifest_dir = os.path.dirname(manifest_file)
+            if manifest_dir and not os.path.exists(manifest_dir):
+                os.makedirs(manifest_dir, exist_ok=True)
+
             discovered = build_monthly_shards_with_pathway(
                 base_dir_guess,
                 manifest_file,
@@ -502,6 +514,12 @@ def fine_tune_month(args, manifest_path="monthly_manifest.json", bookkeeping_pat
     manifest["last_checkpoint_path"] = out_path
     
     output_manifest = bookkeeping_path or manifest_file
+    
+    # [FIX] Ensure directory exists before saving updated manifest
+    out_dir = os.path.dirname(output_manifest)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+        
     with open(output_manifest, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
     print(f"Updated manifest at {output_manifest}")
@@ -620,7 +638,7 @@ if __name__ == '__main__':
     parser.add_argument("-pos_yn", "-pos", default="y", help="Enable momentum relation graph")
     parser.add_argument("-neg_yn", "-neg", default="y", help="Enable reversal relation graph")
     parser.add_argument("-multi_reward_yn", "-mr", default="y", help="Enable multi-reward IRL head")
-    parser.add_argument("-policy", "-p", default="MLP", help="Policy architecture identifier")
+    parser.add_argument("-policy", "-p", default="HGAT", help="Policy architecture identifier")
     
     # Continual learning / Resume
     parser.add_argument("--resume_model_path", default=None, help="Path to previously saved PPO model to resume from")
@@ -658,10 +676,10 @@ if __name__ == '__main__':
     
     # Training Hyperparameters
     parser.add_argument("--max_epochs", type=int, default=1, help="Number of IRL+RL epochs to run")
-    parser.add_argument("--batch_size", type=int, default=32, help="Training batch size for loaders and IRL")
+    parser.add_argument("--batch_size", type=int, default=512, help="Training batch size for loaders and IRL")
     parser.add_argument("--n_steps", type=int, default=2048, help="Rollout horizon (environment steps) per PPO update cycle")
-    parser.add_argument("--irl_epochs", type=int, default=50, help="Number of IRL training epochs")
-    parser.add_argument("--rl_timesteps", type=int, default=10000, help="Number of RL timesteps for training")
+    parser.add_argument("--irl_epochs", type=int, default=15, help="Number of IRL training epochs")
+    parser.add_argument("--rl_timesteps", type=int, default=500, help="Number of RL timesteps for training")
     parser.add_argument(
         "--disable-tensorboard",
         action="store_true",

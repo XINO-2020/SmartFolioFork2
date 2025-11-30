@@ -12,5 +12,47 @@
     "mdd": -0.09896751074331966,
     "cr": 2.768231318331013,
     "ir": 0.04247695253429649
+  },
+  {
+    "created_at": "2025-11-30T17:34:13.663939",
+    "promoted": true,
+    "reasons": [],
+    "candidate_path": "./checkpoints/ppo_hgat_custom_20251130_173413.zip",
+    "baseline_path": "./checkpoints/baseline.zip",
+    "count": 1,
+    "arr": 0.3406507343480183,
+    "avol": 0.1667027634427719,
+    "sharpe": 1.7595731140751123,
+    "mdd": -0.1022792651062725,
+    "cr": 3.3305942704424765,
+    "ir": 0.29988398188705084
+  },
+  {
+    "created_at": "2025-11-30T17:38:41.320375",
+    "promoted": true,
+    "reasons": [],
+    "candidate_path": "./checkpoints/ppo_hgat_custom_20251130_173841.zip",
+    "baseline_path": "./checkpoints/baseline.zip",
+    "count": 1,
+    "arr": 0.32967677643650517,
+    "avol": 0.16786231897633047,
+    "sharpe": 1.698398057089521,
+    "mdd": -0.10205533736783845,
+    "cr": 3.230372706997674,
+    "ir": 0.2628844693592696
+  },
+  {
+    "created_at": "2025-11-30T18:11:27.194410",
+    "promoted": true,
+    "reasons": [],
+    "candidate_path": "./checkpoints/ppo_hgat_custom_20251130_181127.zip",
+    "baseline_path": "./checkpoints/baseline.zip",
+    "count": 1,
+    "arr": 0.31907582201159457,
+    "avol": 0.1669221848375091,
+    "sharpe": 1.659956567245922,
+    "mdd": -0.08852868125695401,
+    "cr": 3.6042084608204967,
+    "ir": 0.22874943398999825
   }
 ]
